@@ -1,6 +1,6 @@
-require('dotenv').config(); // Charge les variables du fichier .env en local
+require('dotenv').config();
 const express = require('express');
-const { Pool } = require('pg');
+const { Sequelize } = require('sequelize');
 const cors = require('cors');
 
 const app = express();
@@ -23,41 +23,31 @@ app.use('/vault', require('./routes/vaultRoutes'));
 app.use(cors()); // Active le CORS pour permettre au frontend d'appeler l'API
 app.use(express.json());
 
-// Configuration de la connexion PostgreSQL
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 5432,
-});
-
-// Test de connexion à la base de données au démarrage
-pool.connect((err) => {
-  if (err) {
-    console.error('Erreur de connexion à la base de données:', err.stack);
-  } else {
-    console.log('Connecté à la base de données PostgreSQL avec succès');
+// Initialisation de Sequelize avec les variables d'environnement
+const sequelize = new Sequelize(
+  process.env.DB_NAME,
+  process.env.DB_USER,
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST,
+    dialect: 'postgres',
+    port: process.env.DB_PORT || 5432,
+    logging: false // Désactive les logs SQL dans la console (plus propre)
   }
-});
+);
 
-// Route de test
-app.get('/status', (req, res) => {
-  res.json({ status: 'OK', message: 'Le backend SwordManager fonctionne !' });
-});
-
-// Exemple de route API
-app.get('/api/data', async (req, res) => {
+// Test de connexion
+(async () => {
   try {
-    const result = await pool.query('SELECT NOW()'); // Simple test requête
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    await sequelize.authenticate();
+    console.log('✅ Connexion à PostgreSQL réussie avec Sequelize !');
+  } catch (error) {
+    console.error('❌ Erreur de connexion à la base de données:', error);
   }
-});
+})();
 
-// Démarrage du serveur sur le port imposé par Cloud Run ou 8080 par défaut
+// Route de santé
+app.get('/status', (req, res) => res.json({ status: 'OK' }));
+
 const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`Serveur backend lancé sur le port ${port}`);
-});
+app.listen(port, () => console.log(`Serveur lancé sur le port ${port}`));
