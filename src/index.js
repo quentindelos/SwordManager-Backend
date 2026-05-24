@@ -27,7 +27,7 @@ const start = async () => {
     await sequelize.sync();
     const port = process.env.PORT || 8080;
     app.listen(port, '0.0.0.0', () => {
-      console.log(`🚀 Serveur prêt sur le port ${port}`);
+      console.log(`Serveur prêt sur le port ${port}`);
     });
   } catch (e) { console.error(e); }
 };
