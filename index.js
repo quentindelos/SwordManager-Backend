@@ -10,7 +10,7 @@ const app = express();
 if (process.env.NODE_ENV !== 'production') {
   app.use(cors({
     // On autorise localhost ET l'IP 127.0.0.1
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'], 
+    origin: ['http://localhost:5500', 'http://127.0.0.1:5500', 'https://www.swordmanager.cloud', 'https://swordmanager.cloud'], 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -19,8 +19,8 @@ if (process.env.NODE_ENV !== 'production') {
 app.use(express.json());
 
 // Routes
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/vault', require('./routes/vaultRoutes'));
+app.use('/auth', require('./routes/authRoutes'));
+app.use('/vault', require('./routes/vaultRoutes'));
 
 const start = async () => {
   try {
