@@ -18,7 +18,7 @@ app.use('/auth', require('./routes/authRoutes'));
 app.use('/vault', require('./routes/vaultRoutes'));
 
 // Middleware
-app.use(cors()); // Active le CORS pour permettre au frontend d'appeler l'API
+app.use(cors());
 app.use(express.json());
 
 // Initialisation de Sequelize avec les variables d'environnement
