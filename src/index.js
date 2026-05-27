@@ -1,0 +1,35 @@
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
+const express = require('express');
+const cors = require('cors');
+const { sequelize } = require('./models');
+
+const app = express();
+if (process.env.NODE_ENV !== 'production') {
+  app.use(cors({
+    // On autorise localhost ET l'IP 127.0.0.1
+    origin: ['http://localhost:5500', 'http://127.0.0.1:5500', 'https://www.swordmanager.cloud', 'https://swordmanager.cloud'], 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+  }));
+}
+app.use(express.json());
+
+// Routes
+app.use('/auth', require('./routes/authRoutes'));
+app.use('/vault', require('./routes/vaultRoutes'));
+
+const start = async () => {
+  try {
+    await sequelize.sync();
+    const port = process.env.PORT || 8080;
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`🚀 Serveur prêt sur le port ${port}`);
+    });
+  } catch (e) { console.error(e); }
+};
+
+start();
