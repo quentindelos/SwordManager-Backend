@@ -10,6 +10,7 @@ exports.register = async (req, res) => {
     const user = await User.create({ email, passwordHash: hash, protectedKey });
     res.status(201).json({ id: user.id, email: user.email });
   } catch (e) {
+    console.error(e);
     res.status(400).json({ error: "Utilisateur déjà existant" });
   }
 };
