@@ -15,7 +15,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Routes
 app.use('/auth', require('./routes/authRoutes'));
 app.use('/vault', require('./routes/vaultRoutes'));
 
