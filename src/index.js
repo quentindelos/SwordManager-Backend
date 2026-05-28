@@ -21,12 +21,19 @@ app.use('/vault', require('./routes/vaultRoutes'));
 
 const start = async () => {
   try {
+    await sequelize.authenticate();
+    console.log('Connexion à la base de données réussie.');
+    
     await sequelize.sync();
+    
     const port = process.env.PORT || 8080;
     app.listen(port, '0.0.0.0', () => {
-      console.log(`🚀 Serveur prêt sur le port ${port}`);
+      console.log(`Serveur prêt sur le port ${port}`);
     });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error('Erreur critique de base de données:', e);
+    process.exit(1); 
+  }
 };
 
 start();
