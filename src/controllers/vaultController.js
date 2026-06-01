@@ -1,48 +1,118 @@
-const { VaultItem } = require('../models');
+const { VaultItem } = require("../models");
 
+// Persist a new encrypted item to the user's vault
 exports.addItem = async (req, res) => {
   try {
     const { type, label, encryptedData, folder } = req.body;
+
+    // Validate that required cryptographic payload is present
+    if (!encryptedData) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "encryptedData is a required field.",
+      });
+    }
+
+    // Initialize item ensuring strict multi-tenant context mapping
     const item = await VaultItem.create({
-      type, label, encryptedData, folder, UserId: req.userId
+      type: type || "login",
+      label: label || "Untitled Item",
+      encryptedData,
+      folder: folder || null,
+      UserId: req.userId,
     });
-    res.status(201).json(item);
-  } catch (e) {
-    res.status(500).json({ error: "Erreur serveur" });
+
+    return res.status(201).json(item);
+  } catch (error) {
+    console.error("Add Item Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "Failed to add vault item.",
+    });
   }
 };
 
+// Retrieve all encrypted items linked to the authenticated identity
 exports.getItems = async (req, res) => {
-  const items = await VaultItem.findAll({ where: { UserId: req.userId } });
-  res.json(items);
+  try {
+    const items = await VaultItem.findAll({
+      where: { UserId: req.userId },
+      order: [["updatedAt", "DESC"]],
+    });
+    return res.json(items);
+  } catch (error) {
+    console.error("Get Items Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "Failed to retrieve vault items.",
+    });
+  }
 };
 
+// Remove an entry from the vault, verifying resource ownership prior to deletion
 exports.deleteItem = async (req, res) => {
-  await VaultItem.destroy({ where: { id: req.params.id, UserId: req.userId } });
-  res.json({ message: "Supprimé" });
+  try {
+    const itemId = req.params.id;
+
+    const deletedRows = await VaultItem.destroy({
+      where: { id: itemId, UserId: req.userId },
+    });
+
+    // Handle instances where the target resource does not exist or access is restricted
+    if (deletedRows === 0) {
+      return res.status(404).json({
+        error: "NotFoundError",
+        message: "Vault item not found or unauthorized.",
+      });
+    }
+
+    return res.json({ message: "Item successfully deleted." });
+  } catch (error) {
+    console.error("Delete Item Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "Failed to delete vault item.",
+    });
+  }
 };
 
+// Update an existing item, restricting scope exclusively to the resource owner
 exports.replaceItem = async (req, res) => {
   try {
     const { type, label, encryptedData, folder } = req.body;
     const itemId = req.params.id;
 
-    // On met à jour les champs de l'élément qui correspond à l'ID et à l'utilisateur
-    const [updatedRows] = await VaultItem.update(
-      { type, label, encryptedData, folder },
-      { where: { id: itemId, UserId: req.userId } }
-    );
-
-    // Si aucune ligne n'a été modifiée, c'est que l'item n'existe pas ou n'appartient pas à l'utilisateur
-    if (updatedRows === 0) {
-      return res.status(404).json({ error: "Élément introuvable ou non autorisé" });
+    if (!encryptedData) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "encryptedData cannot be empty.",
+      });
     }
 
-    // Optionnel : On récupère l'élément mis à jour pour le renvoyer au client
-    const updatedItem = await VaultItem.findByPk(itemId);
-    res.json(updatedItem);
+    // Execute bulk update command gated by implicit multi-tenant filters
+    const [updatedRows] = await VaultItem.update(
+      { type, label, encryptedData, folder },
+      { where: { id: itemId, UserId: req.userId } },
+    );
 
-  } catch (e) {
-    res.status(500).json({ error: "Erreur lors de la modification" });
+    if (updatedRows === 0) {
+      return res.status(404).json({
+        error: "NotFoundError",
+        message: "Vault item not found or unauthorized.",
+      });
+    }
+
+    // Query modified entity specifying both entity identifiers to maintain strict transaction context
+    const updatedItem = await VaultItem.findOne({
+      where: { id: itemId, UserId: req.userId },
+    });
+
+    return res.json(updatedItem);
+  } catch (error) {
+    console.error("Update Item Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "Failed to modify vault item.",
+    });
   }
 };
