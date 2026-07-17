@@ -1,6 +1,13 @@
 const { VaultItem } = require("../models");
 const { logActivity } = require("../utils/activityLogger");
 
+// Préfixe utilisé côté client pour représenter un dossier vide (aucune entité "Folder" dédiée)
+const FOLDER_PLACEHOLDER_PREFIX = "[Dossier Vide] ";
+
+function isFolderPlaceholder(label) {
+  return (label || "").startsWith(FOLDER_PLACEHOLDER_PREFIX);
+}
+
 // Persist a new encrypted item to the user's vault
 exports.addItem = async (req, res) => {
   try {
@@ -23,7 +30,11 @@ exports.addItem = async (req, res) => {
       UserId: req.userId,
     });
 
-    await logActivity(req.userId, "item_created", req, item.label);
+    if (isFolderPlaceholder(item.label)) {
+      await logActivity(req.userId, "folder_created", req, item.folder);
+    } else {
+      await logActivity(req.userId, "item_created", req, item.label);
+    }
 
     return res.status(201).json(item);
   } catch (error) {
@@ -70,9 +81,14 @@ exports.deleteItem = async (req, res) => {
     }
 
     const label = item.label;
+    const folder = item.folder;
     await item.destroy();
 
-    await logActivity(req.userId, "item_deleted", req, label);
+    if (isFolderPlaceholder(label)) {
+      await logActivity(req.userId, "folder_deleted", req, folder);
+    } else {
+      await logActivity(req.userId, "item_deleted", req, label);
+    }
 
     return res.json({ message: "Item successfully deleted." });
   } catch (error) {
@@ -97,25 +113,44 @@ exports.replaceItem = async (req, res) => {
       });
     }
 
-    // Execute bulk update command gated by implicit multi-tenant filters
-    const [updatedRows] = await VaultItem.update(
-      { type, label, encryptedData, folder },
-      { where: { id: itemId, UserId: req.userId } },
-    );
+    const existingItem = await VaultItem.findOne({
+      where: { id: itemId, UserId: req.userId },
+    });
 
-    if (updatedRows === 0) {
+    if (!existingItem) {
       return res.status(404).json({
         error: "NotFoundError",
         message: "Vault item not found or unauthorized.",
       });
     }
 
+    const previousFolder = existingItem.folder || null;
+    const nextFolder = folder || null;
+
+    // Execute bulk update command gated by implicit multi-tenant filters
+    await VaultItem.update(
+      { type, label, encryptedData, folder },
+      { where: { id: itemId, UserId: req.userId } },
+    );
+
     // Query modified entity specifying both entity identifiers to maintain strict transaction context
     const updatedItem = await VaultItem.findOne({
       where: { id: itemId, UserId: req.userId },
     });
 
-    await logActivity(req.userId, "item_updated", req, updatedItem.label);
+    // Un déplacement entre dossiers est loggé distinctement d'une simple modification
+    if (!isFolderPlaceholder(updatedItem.label) && previousFolder !== nextFolder) {
+      const fromLabel = previousFolder || "Sans dossier";
+      const toLabel = nextFolder || "Sans dossier";
+      await logActivity(
+        req.userId,
+        "item_moved",
+        req,
+        `${updatedItem.label}: ${fromLabel} -> ${toLabel}`,
+      );
+    } else {
+      await logActivity(req.userId, "item_updated", req, updatedItem.label);
+    }
 
     return res.json(updatedItem);
   } catch (error) {
