@@ -23,6 +23,14 @@ const User = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    twoFactorSecret: {
+      type: DataTypes.STRING,
+      allowNull: true // Null tant que le 2FA n'est pas activé
+    },
+    isTwoFactorEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
     // Master-key-derived encryption key wrapping material
     protectedKey: {
       type: DataTypes.TEXT,
