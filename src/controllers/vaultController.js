@@ -1,4 +1,5 @@
 const { VaultItem } = require("../models");
+const { logActivity } = require("../utils/activityLogger");
 
 // Persist a new encrypted item to the user's vault
 exports.addItem = async (req, res) => {
@@ -21,6 +22,8 @@ exports.addItem = async (req, res) => {
       folder: folder || null,
       UserId: req.userId,
     });
+
+    await logActivity(req.userId, "item_created", req, item.label);
 
     return res.status(201).json(item);
   } catch (error) {
@@ -54,17 +57,22 @@ exports.deleteItem = async (req, res) => {
   try {
     const itemId = req.params.id;
 
-    const deletedRows = await VaultItem.destroy({
+    const item = await VaultItem.findOne({
       where: { id: itemId, UserId: req.userId },
     });
 
     // Handle instances where the target resource does not exist or access is restricted
-    if (deletedRows === 0) {
+    if (!item) {
       return res.status(404).json({
         error: "NotFoundError",
         message: "Vault item not found or unauthorized.",
       });
     }
+
+    const label = item.label;
+    await item.destroy();
+
+    await logActivity(req.userId, "item_deleted", req, label);
 
     return res.json({ message: "Item successfully deleted." });
   } catch (error) {
@@ -106,6 +114,8 @@ exports.replaceItem = async (req, res) => {
     const updatedItem = await VaultItem.findOne({
       where: { id: itemId, UserId: req.userId },
     });
+
+    await logActivity(req.userId, "item_updated", req, updatedItem.label);
 
     return res.json(updatedItem);
   } catch (error) {

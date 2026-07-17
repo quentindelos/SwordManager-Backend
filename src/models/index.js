@@ -75,6 +75,41 @@ const VaultItem = sequelize.define(
   },
 );
 
+// Activity Log Schema Definition (Account audit trail)
+const ActivityLog = sequelize.define(
+  "ActivityLog",
+  {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    // e.g. "login", "item_created", "item_updated", "item_deleted", "password_copied", "password_revealed"
+    action: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    ip: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    // Optional human-readable context, e.g. the label of the affected vault item
+    detail: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+  },
+  {
+    timestamps: true,
+    updatedAt: false,
+    indexes: [
+      {
+        fields: ["UserId"],
+      },
+    ],
+  },
+);
+
 // One-to-Many Relationship Definition (User -> VaultItems)
 User.hasMany(VaultItem, {
   foreignKey: {
@@ -91,4 +126,20 @@ VaultItem.belongsTo(User, {
   },
 });
 
-module.exports = { User, VaultItem, sequelize };
+// One-to-Many Relationship Definition (User -> ActivityLogs)
+User.hasMany(ActivityLog, {
+  foreignKey: {
+    name: "UserId",
+    allowNull: false,
+  },
+  onDelete: "CASCADE",
+});
+
+ActivityLog.belongsTo(User, {
+  foreignKey: {
+    name: "UserId",
+    allowNull: false,
+  },
+});
+
+module.exports = { User, VaultItem, ActivityLog, sequelize };

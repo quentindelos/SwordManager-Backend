@@ -1,6 +1,7 @@
 const argon2 = require("argon2");
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
+const { logActivity } = require("../utils/activityLogger");
 
 const SECRET_KEY = process.env.JWT_SECRET;
 
@@ -90,6 +91,8 @@ exports.login = async (req, res) => {
     }
 
     const token = generateAccessToken(user.id);
+
+    await logActivity(user.id, "login", req);
 
     return res.json({
       token,

@@ -10,6 +10,9 @@ const { sequelize } = require("./models");
 
 const app = express();
 
+// Trust the Cloud Run front-end proxy so req.ip and X-Forwarded-For reflect the real client IP
+app.set("trust proxy", true);
+
 // Global HTTP security headers
 app.use(helmet());
 
@@ -43,6 +46,7 @@ app.use(limiter);
 // API route registrations
 app.use("/auth", require("./routes/authRoutes"));
 app.use("/vault", require("./routes/vaultRoutes"));
+app.use("/activity", require("./routes/activityRoutes"));
 
 // Centralized error handling middleware
 app.use((err, req, res, next) => {
