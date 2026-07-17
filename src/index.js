@@ -64,7 +64,7 @@ const start = async () => {
     console.log("📦 Database connection established successfully.");
 
     // Synchronize models
-    await sequelize.sync();
+    await sequelize.sync({ alter: true });
 
     const port = process.env.PORT || 8080;
     app.listen(port, "0.0.0.0", () => {

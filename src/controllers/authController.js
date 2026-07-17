@@ -1,5 +1,7 @@
 const argon2 = require("argon2");
 const jwt = require("jsonwebtoken");
+const { generateSecret, generate, verify, generateURI } = require("otplib");
+const QRCode = require("qrcode");
 const { User } = require("../models");
 const { logActivity } = require("../utils/activityLogger");
 
@@ -19,7 +21,6 @@ exports.register = async (req, res) => {
   try {
     const { email, password, protectedKey } = req.body;
 
-    // Validate request payload completeness before executing cryptographic or database operations
     if (!email || !password || !protectedKey) {
       return res.status(400).json({
         error: "ValidationError",
@@ -27,10 +28,8 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Hash password using default Argon2id parameters
     const passwordHash = await argon2.hash(password);
 
-    // Normalize and persist user registration data
     const user = await User.create({
       email: email.toLowerCase().trim(),
       passwordHash,
@@ -39,7 +38,6 @@ exports.register = async (req, res) => {
 
     return res.status(201).json({ id: user.id, email: user.email });
   } catch (error) {
-    // Intercept database unique constraint violations to prevent duplicate registrations
     if (error.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({
         error: "ConflictError",
@@ -47,7 +45,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Log contextual stack traces internally without exposing server internals to the client
     console.error("Registration Error:", error);
     return res.status(500).json({
       error: "InternalServerError",
@@ -56,7 +53,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// Authenticate user credentials and return a session token
+// ÉTAPE 1 DU LOGIN : Vérification des identifiants classiques
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -68,12 +65,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Retrieve user identity using normalized criteria
     const user = await User.findOne({
       where: { email: email.toLowerCase().trim() },
     });
 
-    // Mitigate account enumeration attacks by returning uniform generic messages for missing identities
     if (!user) {
       return res.status(401).json({
         error: "AuthenticationError",
@@ -81,7 +76,6 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Securely verify incoming secret against stored hash
     const isPasswordValid = await argon2.verify(user.passwordHash, password);
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -90,8 +84,22 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = generateAccessToken(user.id);
+    if (user.isTwoFactorEnabled) {
+      // On génère un token très court (3 minutes) qui prouve que le mot de passe est bon
+      const preAuthToken = jwt.sign(
+        { id: user.id, isPasswordValidated: true }, 
+        SECRET_KEY, 
+        { expiresIn: "3m" }
+      );
 
+      return res.json({
+        requires2FA: true,
+        preAuthToken: preAuthToken // On envoie ce jeton temporaire au frontend
+      });
+    }
+
+    // Si pas de 2FA, session directe
+    const token = generateAccessToken(user.id);
     await logActivity(user.id, "login", req);
 
     return res.json({
@@ -103,6 +111,132 @@ exports.login = async (req, res) => {
     return res.status(500).json({
       error: "InternalServerError",
       message: "An unexpected error occurred during login.",
+    });
+  }
+};
+
+// 🛠️ ÉTAPE 2 DU LOGIN : Validation du code à 6 chiffres si le 2FA est actif
+exports.login2FA = async (req, res) => {
+  try {
+    const { preAuthToken, token } = req.body;
+
+    if (!preAuthToken || !token) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "Pre-auth token and 2FA token are required.",
+      });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(preAuthToken, SECRET_KEY);
+    } catch (err) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "2FA session expired or invalid. Please re-enter your password.",
+      });
+    }
+
+    const user = await User.findByPk(decoded.id);
+
+    if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Invalid 2FA session.",
+      });
+    }
+
+    // Vérification du code à 6 chiffres (TOTP)
+    const isValid = verify({ token, secret: user.twoFactorSecret });
+
+    if (!isValid) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Invalid 2FA code.",
+      });
+    }
+
+    const accessToken = generateAccessToken(user.id);
+    await logActivity(user.id, "login", req);
+
+    return res.json({
+      token: accessToken,
+      protectedKey: user.protectedKey,
+    });
+  } catch (error) {
+    console.error("Login 2FA Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "An unexpected error occurred during 2FA verification.",
+    });
+  }
+};
+
+// Configuration initiale du 2FA (génère le QR Code)
+exports.twoFaSetup = async (req, res) => {
+  try {
+    console.log("UserID:", req.userId);
+    const user = await User.findByPk(req.userId);
+
+    if (!user) {
+      return res.status(404).json({ error: "NotFoundError", message: "User not found." });
+    }
+
+    // Fonctionne parfaitement maintenant car l'objet 'authenticator' possède ces méthodes
+    const secret = generateSecret();
+    const uri = generateURI({
+      issuer: "SwordManager",
+      label: user.email,
+      secret,
+    });
+
+    console.log(uri);
+
+    user.twoFactorSecret = secret;
+    await user.save();
+
+    const qrCodeImageUrl = await QRCode.toDataURL(uri);
+
+    console.log("qrCodeImageUrl generated successfully.");
+
+    return res.json({
+      qrCode: qrCodeImageUrl,
+      secret: secret
+    });
+  } catch (error) {
+    console.error("2fa Setup Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "An unexpected error occurred during 2FA setup.",
+    });
+  }
+};
+
+// Confirmation du code pour ACTIVER définitivement le 2FA
+exports.twoFaVerify = async (req, res) => {
+  try {
+    const { token } = req.body; 
+    const user = await User.findByPk(req.userId);
+
+    if (!user || !user.twoFactorSecret) {
+      return res.status(400).json({ error: "ValidationError", message: "2FA setup was not initiated." });
+    }
+
+    const isValid = verify({ token, secret: user.twoFactorSecret });
+
+    if (!isValid) {
+      return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
+    }
+
+    user.isTwoFactorEnabled = true;
+    await user.save();
+
+    return res.json({ message: "2FA successfully enabled!" });
+  } catch (error) {
+    console.error("Login 2fa Verify Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "An unexpected error occurred.",
     });
   }
 };
