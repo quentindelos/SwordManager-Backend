@@ -10,8 +10,10 @@ const { sequelize } = require("./models");
 
 const app = express();
 
-// Trust the Cloud Run front-end proxy so req.ip and X-Forwarded-For reflect the real client IP
-app.set("trust proxy", true);
+// Trust exactly one hop (the Cloud Run front-end proxy) so req.ip reflects the real client
+// IP. Trusting *all* hops (`true`) lets a client spoof X-Forwarded-For and defeats
+// express-rate-limit's per-IP limiting, which is why it refuses to start with that setting.
+app.set("trust proxy", 1);
 
 // Global HTTP security headers
 app.use(helmet());
