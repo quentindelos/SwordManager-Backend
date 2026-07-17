@@ -24,7 +24,12 @@ exports.recordEvent = async (req, res) => {
   try {
     const { action, detail } = req.body;
 
-    const allowedActions = ["password_copied", "password_revealed"];
+    const allowedActions = [
+      "password_copied",
+      "password_revealed",
+      "logout",
+      "logout_auto",
+    ];
     if (!allowedActions.includes(action)) {
       return res.status(400).json({
         error: "ValidationError",
