@@ -195,9 +195,9 @@ exports.twoFaSetup = async (req, res) => {
     user.twoFactorSecret = secret;
     await user.save();
 
-    const qrCodeImageUrl = await QRCode.toDataURL(uri);
+    await logActivity(user.id, "2fa_setup_initiated", req);
 
-    console.log("qrCodeImageUrl generated successfully.");
+    const qrCodeImageUrl = await QRCode.toDataURL(uri);
 
     return res.json({
       qrCode: qrCodeImageUrl,
@@ -231,6 +231,8 @@ exports.twoFaVerify = async (req, res) => {
     user.isTwoFactorEnabled = true;
     await user.save();
 
+    await logActivity(user.id, "2fa_enabled", req);
+
     return res.json({ message: "2FA successfully enabled!" });
   } catch (error) {
     console.error("Login 2fa Verify Error:", error);
@@ -262,6 +264,8 @@ exports.twoFaDisable = async (req, res) => {
     user.isTwoFactorEnabled = false;
     user.twoFactorSecret = null;
     await user.save();
+
+    await logActivity(user.id, "2fa_disabled", req);
 
     return res.json({ message: "2FA successfully deleted." });
   } catch (error) {
