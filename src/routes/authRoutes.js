@@ -8,4 +8,5 @@ router.post("/login/2fa", authCtrl.login2FA);
 router.post("/login", authCtrl.login);
 router.post("/2fa/setup", protect, authCtrl.twoFaSetup);
 router.post("/2fa/verify", protect, authCtrl.twoFaVerify);
+router.delete("/2fa", protect, authCtrl.twoFaDisable);
 module.exports = router;

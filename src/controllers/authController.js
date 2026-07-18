@@ -240,3 +240,32 @@ exports.twoFaVerify = async (req, res) => {
     });
   }
 };
+
+exports.twoFaDisable = async (req, res) => {
+  try {
+    const { token } = req.body; 
+    const user = await User.findByPk(req.userId);
+
+    if (!user || !user.isTwoFactorEnabled) {
+      return res.status(400).json({ 
+        error: "ValidationError", 
+        message: "2FA is not enabled for this account." 
+      });
+    }
+
+    const isValid = verify({ token, secret: user.twoFactorSecret });
+    if (!isValid) {
+      return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
+    }
+
+    // On supprime la configuration
+    user.isTwoFactorEnabled = false;
+    user.twoFactorSecret = null;
+    await user.save();
+
+    return res.json({ message: "2FA successfully deleted." });
+  } catch (error) {
+    console.error("2fa Disable Error:", error);
+    return res.status(500).json({ error: "InternalServerError", message: "An error occurred." });
+  }
+};
