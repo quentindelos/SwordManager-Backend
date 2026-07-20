@@ -20,6 +20,7 @@ module.exports = (req, res, next) => {
 
     // Contextually bind the identity to the request object for downstream controllers
     req.userId = decoded.id;
+    req.isBackupAuth = decoded.isBackupAuth || false;
     next();
   } catch (err) {
     // Handle expired tokens explicitly to facilitate client-side session management or rotation
