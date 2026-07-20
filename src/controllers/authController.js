@@ -147,9 +147,9 @@ exports.login2FA = async (req, res) => {
     }
 
     // Vérification du code à 6 chiffres (TOTP)
-    const isValid = verify({ token, secret: user.twoFactorSecret });
+    const checkResult = await verify({ token, secret: user.twoFactorSecret });
 
-    if (!isValid) {
+    if (!checkResult.valid) {
       return res.status(401).json({
         error: "AuthenticationError",
         message: "Invalid 2FA code.",
@@ -175,7 +175,6 @@ exports.login2FA = async (req, res) => {
 // Configuration initiale du 2FA (génère le QR Code)
 exports.twoFaSetup = async (req, res) => {
   try {
-    console.log("UserID:", req.userId);
     const user = await User.findByPk(req.userId);
 
     if (!user) {
@@ -189,8 +188,6 @@ exports.twoFaSetup = async (req, res) => {
       label: user.email,
       secret,
     });
-
-    console.log(uri);
 
     user.twoFactorSecret = secret;
     await user.save();
@@ -222,9 +219,9 @@ exports.twoFaVerify = async (req, res) => {
       return res.status(400).json({ error: "ValidationError", message: "2FA setup was not initiated." });
     }
 
-    const isValid = verify({ token, secret: user.twoFactorSecret });
+    const resultCheck = await verify({ token, secret: user.twoFactorSecret });
 
-    if (!isValid) {
+    if (!resultCheck.valid) {
       return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
     }
 
@@ -255,8 +252,8 @@ exports.twoFaDisable = async (req, res) => {
       });
     }
 
-    const isValid = verify({ token, secret: user.twoFactorSecret });
-    if (!isValid) {
+    const resultCheck = await verify({ token, secret: user.twoFactorSecret });
+    if (!resultCheck.valid) {
       return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
     }
 
