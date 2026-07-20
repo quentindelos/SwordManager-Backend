@@ -36,6 +36,10 @@ const User = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    backupCodes: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
   },
   {
     // Automatically includes and manages createdAt and updatedAt fields

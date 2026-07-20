@@ -12,8 +12,8 @@ const SECRET_KEY = process.env.JWT_SECRET;
  * @param {string} userId - The unique identifier of the user
  * @returns {string} Signed JWT
  */
-const generateAccessToken = (userId) => {
-  return jwt.sign({ id: userId }, SECRET_KEY, { expiresIn: "1h" });
+const generateAccessToken = (userId, isBackupAuth = false) => {
+  return jwt.sign({ id: userId, isBackupAuth }, SECRET_KEY, { expiresIn: "1h" });
 };
 
 // Handle new user account creation
@@ -220,29 +220,45 @@ exports.twoFaVerify = async (req, res) => {
     }
 
     const resultCheck = await verify({ token, secret: user.twoFactorSecret });
-
     if (!resultCheck.valid) {
       return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
     }
 
+    // --- SÉCURITÉ : GÉNÉRATION DES CODES DE SECOURS ---
+    const plainBackupCodes = [];
+    const hashedBackupCodes = [];
+
+    for (let i = 0; i < 10; i++) {
+      // Génère un code au format XXXX-XXXX-XXXX
+      const code = Math.random().toString(36).substring(2, 6) + "-" +
+                   Math.random().toString(36).substring(2, 6) + "-" +
+                   Math.random().toString(36).substring(2, 6);
+      
+      plainBackupCodes.push(code.toUpperCase());
+      const hashedCode = await argon2.hash(code.toUpperCase());
+      hashedBackupCodes.push(hashedCode);
+    }
+
     user.isTwoFactorEnabled = true;
+    user.backupCodes = hashedBackupCodes; // Stockage sécurisé
     await user.save();
 
     await logActivity(user.id, "2fa_enabled", req);
 
-    return res.json({ message: "2FA successfully enabled!" });
+    // On renvoie les codes en clair uniquement ICI au client
+    return res.json({ 
+      message: "2FA successfully enabled!",
+      backupCodes: plainBackupCodes 
+    });
   } catch (error) {
     console.error("Login 2fa Verify Error:", error);
-    return res.status(500).json({
-      error: "InternalServerError",
-      message: "An unexpected error occurred.",
-    });
+    return res.status(500).json({ error: "InternalServerError", message: "An unexpected error occurred." });
   }
 };
 
 exports.twoFaDisable = async (req, res) => {
   try {
-    const { token } = req.body; 
+    const { token } = req.body || {};
     const user = await User.findByPk(req.userId);
 
     if (!user || !user.isTwoFactorEnabled) {
@@ -252,21 +268,97 @@ exports.twoFaDisable = async (req, res) => {
       });
     }
 
-    const resultCheck = await verify({ token, secret: user.twoFactorSecret });
-    if (!resultCheck.valid) {
-      return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
+    // CAS 1 : Détection automatique via le token JWT (Authentifié par Backup Code)
+    if (req.isBackupAuth) {
+      // Pas besoin de token TOTP
+      // Le fait d'avoir req.isBackupAuth = true valide l'action directement.
+      console.log(`Bypass 2FA deletion for user ${user.id} (authenticated via backup code)`);
+    } 
+    // CAS 2 : Connexion classique, on exige toujours le code TOTP standard à 6 chiffres
+    else {
+      if (!token) {
+        return res.status(400).json({ 
+          error: "ValidationError", 
+          message: "2FA token is required to disable 2FA." 
+        });
+      }
+
+      const resultCheck = await verify({ token, secret: user.twoFactorSecret });
+      if (!resultCheck.valid) {
+        return res.status(400).json({ error: "ValidationError", message: "Invalid 2FA code." });
+      }
     }
 
-    // On supprime la configuration
+    // Réinitialisation complète de la sécurité 2FA pour les deux cas
     user.isTwoFactorEnabled = false;
     user.twoFactorSecret = null;
+    user.backupCodes = null; // On nettoie les codes de secours pour qu'ils ne soient plus utilisables
     await user.save();
 
     await logActivity(user.id, "2fa_disabled", req);
 
-    return res.json({ message: "2FA successfully deleted." });
+    return res.json({ message: "2FA successfully disabled." });
   } catch (error) {
     console.error("2fa Disable Error:", error);
+    return res.status(500).json({ error: "InternalServerError", message: "An error occurred." });
+  }
+};
+
+exports.loginWithBackupCode = async (req, res) => {
+  try {
+    const { backupCode } = req.body;
+
+    // Le middleware a déjà validé le token et extrait req.userId
+    const userId = req.userId; 
+
+    if (!backupCode) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "Backup code is required.",
+      });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user || !user.isTwoFactorEnabled || !user.backupCodes) {
+      return res.status(401).json({ 
+        error: "AuthenticationError", 
+        message: "Invalid session or 2FA is not enabled." 
+      });
+    }
+
+    // Vérifier si le code fourni correspond à un des codes hachés en BDD
+    const upperCaseCode = backupCode.toUpperCase().trim();
+    let matchedIndex = -1;
+
+    for (let i = 0; i < user.backupCodes.length; i++) {
+      const match = await argon2.verify(user.backupCodes[i], upperCaseCode);
+      if (match) {
+        matchedIndex = i;
+        break;
+      }
+    }
+
+    if (matchedIndex === -1) {
+      return res.status(401).json({ error: "AuthenticationError", message: "Invalid backup code." });
+    }
+
+    // Le code est bon ! On le supprime (Usage unique)
+    const updatedBackupCodes = [...user.backupCodes];
+    updatedBackupCodes.splice(matchedIndex, 1);
+    user.backupCodes = updatedBackupCodes;
+    await user.save();
+
+    // Génération du token final avec "isBackupAuth = true"
+    const accessToken = generateAccessToken(user.id, true);
+    await logActivity(user.id, "login_via_backup_code", req);
+
+    return res.json({
+      token: accessToken,
+      protectedKey: user.protectedKey,
+      isBackupAuth: true
+    });
+  } catch (error) {
+    console.error("Backup Code Login Error:", error);
     return res.status(500).json({ error: "InternalServerError", message: "An error occurred." });
   }
 };
