@@ -7,4 +7,5 @@ router.get("/", protect, vaultCtrl.getItems);
 router.post("/", protect, vaultCtrl.addItem);
 router.put("/:id", protect, vaultCtrl.replaceItem);
 router.delete("/:id", protect, vaultCtrl.deleteItem);
+router.post("/bulk", protect, vaultCtrl.addBulkItems);
 module.exports = router;

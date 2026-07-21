@@ -46,6 +46,43 @@ exports.addItem = async (req, res) => {
   }
 };
 
+exports.addBulkItems = async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items) && items.length === 0) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "items must be a non-empty array.",
+      });
+    }
+
+    const formattedRecords = items.map((item) => ({
+      type: item.type || "login",
+      label: item.label || "Identifiant importé",
+      encryptedData: item.encryptedData,
+      folder: item.folder || null,
+      UserId: req.userId,
+    }));
+
+    const createdItems = await VaultItem.bulkCreate(formattedRecords);
+
+    await logActivity(req.userId, "items_imported", req, `${createdItems.length}`);
+
+    return res.status(201).json({
+      message: "Bulk import successful.",
+      count: createdItems.length,
+    });
+  } catch (error) {
+    console.error("Add Bulk Items Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "Failed to perform bulk import.",
+    });
+  }
+};
+
+
 // Retrieve all encrypted items linked to the authenticated identity
 exports.getItems = async (req, res) => {
   try {
