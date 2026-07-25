@@ -306,27 +306,40 @@ exports.twoFaDisable = async (req, res) => {
 
 exports.loginWithBackupCode = async (req, res) => {
   try {
-    const { backupCode } = req.body;
-
-    // Le middleware a déjà validé le token et extrait req.userId
-    const userId = req.userId; 
-
-    if (!backupCode) {
+    const { preAuthToken, backupCode } = req.body;
+    
+    if (!preAuthToken || !backupCode) {
       return res.status(400).json({
         error: "ValidationError",
-        message: "Backup code is required.",
+        message: "Pre-auth token and backup code are required.",
       });
     }
 
-    const user = await User.findByPk(userId);
-    if (!user || !user.isTwoFactorEnabled || !user.backupCodes) {
-      return res.status(401).json({ 
-        error: "AuthenticationError", 
-        message: "Invalid session or 2FA is not enabled." 
+    let decoded;
+    try {
+      decoded = jwt.verify(preAuthToken, SECRET_KEY);
+    } catch (err) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Session expired or invalid. Please re-enter your password.",
       });
     }
 
-    // Vérifier si le code fourni correspond à un des codes hachés en BDD
+    const user = await User.findByPk(decoded.id);
+
+    if (
+      !user ||
+      !user.isTwoFactorEnabled ||
+      !user.backupCodes ||
+      !decoded.passwordValid ||
+      decoded.valid
+    ) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Invalid session or 2FA is not enabled.",
+      });
+    }
+
     const upperCaseCode = backupCode.toUpperCase().trim();
     let matchedIndex = -1;
 
@@ -339,26 +352,105 @@ exports.loginWithBackupCode = async (req, res) => {
     }
 
     if (matchedIndex === -1) {
-      return res.status(401).json({ error: "AuthenticationError", message: "Invalid backup code." });
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Invalid backup code.",
+      });
     }
 
-    // Le code est bon ! On le supprime (Usage unique)
     const updatedBackupCodes = [...user.backupCodes];
     updatedBackupCodes.splice(matchedIndex, 1);
+    
     user.backupCodes = updatedBackupCodes;
     await user.save();
 
-    // Génération du token final avec "isBackupAuth = true"
     const accessToken = generateAccessToken(user.id, true);
     await logActivity(user.id, "login_via_backup_code", req);
 
     return res.json({
       token: accessToken,
       protectedKey: user.protectedKey,
-      isBackupAuth: true
+      isBackupAuth: true,
     });
   } catch (error) {
     console.error("Backup Code Login Error:", error);
-    return res.status(500).json({ error: "InternalServerError", message: "An error occurred." });
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "An unexpected error occurred during backup code login.",
+    });
+  }
+};
+
+// Suppression définitive du compte utilisateur (avec vérification du Mot de Passe + 2FA/Backup Code)
+exports.deleteAccount = async (req, res) => {
+  try {
+    const { password, token } = req.body || {};
+    const userId = req.userId; // Extrait par votre middleware JWT
+
+    // 1. Récupération de l'utilisateur
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        error: "NotFoundError",
+        message: "User not found.",
+      });
+    }
+
+    // 2. Vérification obligatoire du mot de passe
+    if (!password) {
+      return res.status(400).json({
+        error: "ValidationError",
+        message: "Password is required to delete the account.",
+      });
+    }
+
+    const isPasswordValid = await argon2.verify(user.passwordHash, password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        error: "AuthenticationError",
+        message: "Invalid password.",
+      });
+    }
+
+    // 3. Vérification du 2FA si activé sur le compte
+    if (user.isTwoFactorEnabled) {
+      // Si l'utilisateur s'est connecté via un code de secours (isBackupAuth = true)
+      if (req.isBackupAuth) {
+        console.log(`Bypass 2FA code check for account deletion for user ${user.id} (authenticated via backup code)`);
+      } 
+      // Sinon, on exige la présence du code TOTP à 6 chiffres
+      else {
+        if (!token) {
+          return res.status(400).json({
+            error: "ValidationError",
+            message: "2FA token is required to delete the account.",
+          });
+        }
+
+        const resultCheck = await verify({ token, secret: user.twoFactorSecret });
+        if (!resultCheck.valid) {
+          return res.status(400).json({
+            error: "AuthenticationError",
+            message: "Invalid 2FA code.",
+          });
+        }
+      }
+    }
+
+    // 4. Traçabilité : Log avant suppression définitive
+    await logActivity(user.id, "account_deleted", req);
+
+    // 5. Suppression de l'utilisateur dans la base de données
+    await user.destroy();
+
+    return res.json({
+      message: "Account successfully deleted.",
+    });
+  } catch (error) {
+    console.error("Delete Account Error:", error);
+    return res.status(500).json({
+      error: "InternalServerError",
+      message: "An unexpected error occurred during account deletion.",
+    });
   }
 };
