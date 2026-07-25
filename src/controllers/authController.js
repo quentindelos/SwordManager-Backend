@@ -13,7 +13,7 @@ const SECRET_KEY = process.env.JWT_SECRET;
  * @returns {string} Signed JWT
  */
 const generateAccessToken = (userId, isBackupAuth = false) => {
-  return jwt.sign({ id: userId, isBackupAuth }, SECRET_KEY, { expiresIn: "1h" });
+  return jwt.sign({ id: userId, isBackupAuth, valid: true }, SECRET_KEY, { expiresIn: "1h" });
 };
 
 // Handle new user account creation
@@ -87,8 +87,8 @@ exports.login = async (req, res) => {
     if (user.isTwoFactorEnabled) {
       // On génère un token très court (3 minutes) qui prouve que le mot de passe est bon
       const preAuthToken = jwt.sign(
-        { id: user.id, isPasswordValidated: true }, 
-        SECRET_KEY, 
+        { id: user.id, valid: false, passwordValid: true }, 
+        SECRET_KEY,
         { expiresIn: "3m" }
       );
 
@@ -139,7 +139,7 @@ exports.login2FA = async (req, res) => {
 
     const user = await User.findByPk(decoded.id);
 
-    if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+    if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret || !decoded.passwordValid || decoded.valid) {
       return res.status(401).json({
         error: "AuthenticationError",
         message: "Invalid 2FA session.",
