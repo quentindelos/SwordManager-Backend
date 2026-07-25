@@ -9,5 +9,6 @@ router.post("/login", authCtrl.login);
 router.post("/2fa/setup", protect, authCtrl.twoFaSetup);
 router.post("/2fa/verify", protect, authCtrl.twoFaVerify);
 router.delete("/2fa", protect, authCtrl.twoFaDisable);
-router.post("/2fa/recover", protect, authCtrl.loginWithBackupCode);
+router.post("/2fa/recover", authCtrl.loginWithBackupCode);
+router.delete("/", protect, authCtrl.deleteAccount);
 module.exports = router;
